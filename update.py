@@ -1,12 +1,15 @@
+# import enum
+# from sklearn.cluster import k_means
 from sys import stderr
 import constant as ct
 import pygame as pg
 import random
 import math
 import pulp
+import sys
+# import numpy as np
 
 import misc as ms
-import helper as hp
 
 # global variables for this file
 lstp = [ct.NULL for _ in range(ct.NUM_TARGET[-1])]
@@ -23,12 +26,11 @@ uStart = [ct.NULL for _ in range(ct.NUM_OBS[-1])]
 P_alpha_bar = [ 0.1 for _ in range(ct.GAMMA) ]
 EPS = 1e-2
 targ_info = [ [] for _ in range(ct.NUM_OBS[-1]) ]   # each list is a list containing [ id, uStart, uEnd, end_time ] 
-targ_angle = [-1 for _ in range(ct.NUM_TARGET[-1])] 
 
 def ComputeAngle(mean_pos, target):
     angle = 0
     # print(mean_pos, target)
-    if (mean_pos[0] - target[0]) == 0:
+    if abs(mean_pos[0] - target[0]) < 0.001:
         if target[1] > mean_pos[1]:
             angle = math.pi/2
         else:
@@ -61,8 +63,8 @@ def Compute_Reward(obs, k, target_pos):   # Computes reward for each observer at
             continue
         
         angle = ComputeAngle(targ[1], targ[2])
-        mean_pos[0] += targ[2][0] + (2 * ct.GAMMA - targ[3]) * ct.TARG_SPEED[3] * math.cos(angle)
-        mean_pos[1] += targ[2][1] + (2 * ct.GAMMA - targ[3]) * ct.TARG_SPEED[3] * math.sin(angle)
+        mean_pos[0] += targ[2][0] + (2 * ct.GAMMA - targ[3]) * ct.TARG_SPEED[-1] * math.cos(angle)
+        mean_pos[1] += targ[2][1] + (2 * ct.GAMMA - targ[3]) * ct.TARG_SPEED[-1] * math.sin(angle)
 
     reward = [0 for _ in range(10)]
     if num_targs == 0:
@@ -97,7 +99,7 @@ def LP(beta, P_alpha_bar, reward):
     
     prob.solve()
     E = pulp.value(prob.objective)
-    P_alpha2 = [ pulp.value(P_alpha[i]) for _ in range(len(P_alpha)) ]
+    P_alpha2 = [ pulp.value(P_alpha[i]) for cnt in range(len(P_alpha)) ]
 
     return P_alpha2, E
 
@@ -142,17 +144,15 @@ Only one model (0-1) is uncommented.
 '''
 def ComputeWt(num_targets):
     # 0-1 model
-    if ct.MODEL == 0:
-        return (1 if num_targets == 0 else 0)
+    return (1 if num_targets == 0 else 0)
 
     # 0-.5-1 model
-    elif ct.MODEL == 1:
-        if num_targets == 0:
-            return 1
-        elif num_targets == 1:
-            return 0.5
-        else:
-            return 0
+    if num_targets == 0:
+        return 1
+    elif num_targets == 1:
+        return 0.5
+    else:
+        return 0
 
     # 1/(num_targets + 1)**2 model
     return ((1 / (num_targets + 1))**2)
@@ -193,27 +193,24 @@ def boundary_check( pos, width, height ):
     
     return pos
 
-def TargUpdate(target_pos, targ, targ_dest, obs_pos, obsvr, time_step):
-# def TargUpdate(target_pos, targ_dest, obs_pos, time_step):
-    randomised = True # randomised movement
+def TargUpdate(target_pos, targ, targ_dest, obs_pos, obs_dest, time_step, net):
     # update target position
     for i, target in enumerate(target_pos):
         if target_pos[i] != targ_dest[i]:
-            prob = 0 # randomised movement
-            # prob = ct.T_PROB # straight line with randomisation
-            # prob = 1 # straight line movement
-            angle = hp.ControlledRandomise( prob, target, targ_dest[i], targ_angle[i])
+            if random.uniform(0, 1) <= ct.T_PROB:   # straight line movement
+                angle = ComputeAngle(target, targ_dest[i])
+            else:                                   # random movement
+                angle = random.uniform(0, 2 * math.pi)
 
-            if (target[0] - targ_dest[i][0])**2 + (target[1] - targ_dest[i][1])**2 <= ct.TARG_SPEED[3]**2:
+            if (target[0] - targ_dest[i][0])**2 + (target[1] - targ_dest[i][1])**2 <= ct.TARG_SPEED[-1]**2:
                 target_pos[i] = targ_dest[i]
             else:
-                target_pos[i] = (target[0] + ct.TARG_SPEED[3] * math.cos(angle),
-                                 target[1] + ct.TARG_SPEED[3] * math.sin(angle))
+                target_pos[i] = (target[0] + ct.TARG_SPEED[-1] * math.cos(angle),
+                                 target[1] + ct.TARG_SPEED[-1] * math.sin(angle))
             
             target_pos[i] = boundary_check( target_pos[i], ct.AR_WID, ct.AR_HEI )
 
-        if ct.USE_PYGAME == True:
-            targ[i] = pg.draw.circle( pg.display.get_surface(), ct.RED, target_pos[i], ct.TARG_RAD )
+        targ[i] = pg.draw.circle( pg.display.get_surface(), ct.RED, target_pos[i], ct.TARG_RAD )
 
     if time_step % ct.GAMMA == 0:
         for i, target in enumerate(target_pos):
@@ -223,24 +220,19 @@ def TargUpdate(target_pos, targ, targ_dest, obs_pos, obsvr, time_step):
                     in_range.append(obs)
 
             if len(in_range) == 0:      # sets random destination
-                targ_dest[i] = (random.uniform(max(target_pos[i][0] - ct.AR_WID/8, 0), min(target_pos[i][0] + ct.AR_WID/8, ct.AR_WID)),
-                                random.uniform(max(target_pos[i][1] - ct.AR_HEI/8, 0), min(target_pos[i][1] + ct.AR_HEI/8, ct.AR_HEI)))
+                targ_dest[i] = (random.uniform(max(target_pos[i][0] - ct.AR_WID/4, 0), min(target_pos[i][0] + ct.AR_WID/4, ct.AR_WID)),
+                                random.uniform(max(target_pos[i][1] - ct.AR_HEI/4, 0), min(target_pos[i][1] + ct.AR_HEI/4, ct.AR_HEI)))
             else:       # sets destination as far away as possible from all observers
                 mean_pos = (sum([obs[0] for obs in in_range]) / len(in_range),
                             sum([obs[1] for obs in in_range]) / len(in_range))
                 angle = ComputeAngle(mean_pos, target)
 
-                coords = (target[0] + ct.GAMMA * ct.TARG_SPEED[3] * math.cos(angle),
-                          target[1] + ct.GAMMA * ct.TARG_SPEED[3] * math.sin(angle))
+                coords = (target[0] + ct.GAMMA * ct.TARG_SPEED[-1] * math.cos(angle),
+                          target[1] + ct.GAMMA * ct.TARG_SPEED[-1] * math.sin(angle))
                 # boundary conditions
                 targ_dest[i] = HandleBoundary(coords, angle, target, ct.AR_WID, ct.AR_HEI)
-                targ_angle[i] = angle
 
-                if randomised == True:
-                    targ_angle[i] = random.uniform(0, 2*math.pi)
-
-def ObsUpdate(obs_pos, obsvr, obs_dest, target_pos, targ, time_step, strategy):
-# def ObsUpdate(obs_pos, obs_dest, target_pos, time_step, strategy):
+def ObsUpdate(obs_pos, obsvr, obs_dest, target_pos, targ, time_step, strategy, net):
     # update observer position
     for i, obs in enumerate(obs_pos):
         if obs_pos[i] != obs_dest[i]:
@@ -257,19 +249,38 @@ def ObsUpdate(obs_pos, obsvr, obs_dest, target_pos, targ, time_step, strategy):
                 kstep_pos[i][time_step % ct.GAMMA] = (target_pos[nearest_id[i]][0], target_pos[nearest_id[i]][1])
             else:
                 kstep_pos[i][time_step % ct.GAMMA] = ct.NULL
-
+        
+        # update the observer ddpg with information of ALL (targets + observers) within sensor range
+        elif strategy.lower() == 'ddpg' and time_step % ct.GAMMA != 0:              #nwa
+            x, y = obs_pos[i]
+            other_obs = [(a,b) for (a,b) in obs_pos if (x-a)**2 + (y-b)**2 <= ct.SENS_RAN[2]**2 and (a,b) != (x,y) ]
+            targs = [(a,b) for (a,b) in target_pos if (x-a)**2 + (y-b)**2 <= ct.SENS_RAN[2]**2]
+            
+            ntar = 0
+            for t in targs:
+                n = 1
+                for o in other_obs:
+                    if (o[0] - t[0])**2 + (o[1] - t[1])**2 <= ct.SENS_RAN[2]**2: 
+                        n += 1 
+                
+                ntar += 1/n
+            
+            net[i].update_policy( ntar )     #nwa    
+            
+            
+        
         global targ_info
         if strategy.lower() == 'randomise':      # gathers information at each time step
             for j, target in enumerate(target_pos):
                 if (target[0] - obs_pos[i][0])**2 + (target[1] - obs_pos[i][1])**2 <= ct.SENS_RAN[2]**2:
                     ms.HandleInsert(i, targ_info, j, target, time_step % ct.GAMMA )
 
-        if ct.USE_PYGAME == True:
-            obsvr[i] = pg.draw.circle( pg.display.get_surface(), ct.GREEN, obs_pos[i], ct.OBS_RAD )
-            pg.draw.circle( pg.display.get_surface(), ct.BLUE, obs_pos[i], ct.SENS_RAN[2], 1 )
+        obsvr[i] = pg.draw.circle( pg.display.get_surface(), ct.GREEN, obs_pos[i], ct.OBS_RAD )
 
     if time_step % ct.GAMMA == 0:
         # K-means strategy
+        # print('here')
+        print(strategy)
         if strategy.lower() == 'kmeans':
             for i, obs in enumerate(obs_pos):
                 in_range = []
@@ -278,8 +289,8 @@ def ObsUpdate(obs_pos, obsvr, obs_dest, target_pos, targ, time_step, strategy):
                         in_range.append(target)
 
                 if len(in_range) == 0:
-                    obs_dest[i] = (random.uniform(max(obs[0] - ct.AR_WID/8, 0), min(obs[0] + ct.AR_WID/8, ct.AR_WID)),
-                                   random.uniform(max(obs[1] - ct.AR_HEI/8, 0), min(obs[1] + ct.AR_HEI/8, ct.AR_HEI)))
+                    obs_dest[i] = (random.uniform(max(obs[0] - ct.AR_WID/4, 0), min(obs[0] + ct.AR_WID/4, ct.AR_WID)),
+                                   random.uniform(max(obs[1] - ct.AR_HEI/4, 0), min(obs[1] + ct.AR_HEI/4, ct.AR_HEI)))
                 else:
                     mean_pos = (sum([target[0] for target in in_range]) / len(in_range),
                                 sum([target[1] for target in in_range]) / len(in_range))
@@ -295,13 +306,17 @@ def ObsUpdate(obs_pos, obsvr, obs_dest, target_pos, targ, time_step, strategy):
                         in_range.append(target)
 
                 explore_wt = ComputeWt(len(in_range))
-                random_pos = (random.uniform(max(obs[0] - ct.AR_WID/8, 0), min(obs[0] + ct.AR_WID/8, ct.AR_WID)),
-                              random.uniform(max(obs[1] - ct.AR_HEI/8, 0), min(obs[1] + ct.AR_HEI/8, ct.AR_HEI)))
+                random_pos = (random.uniform(max(obs[0] - ct.AR_WID/4, 0), min(obs[0] + ct.AR_WID/4, ct.AR_WID)),
+                              random.uniform(max(obs[1] - ct.AR_HEI/4, 0), min(obs[1] + ct.AR_HEI/4, ct.AR_HEI)))
                 mean_pos = (0, 0)
                 if len(in_range) != 0:
                     mean_pos = (sum([target[0] for target in in_range]) / len(in_range),
                                 sum([target[1] for target in in_range]) / len(in_range))
 
+                # print(i)
+                # print(obs_pos[0], random_pos[0], mean_pos[0], explore_wt)
+                # print(obs_pos[1], random_pos[1], mean_pos[1], explore_wt)
+                # print()
                 obs_dest[i] = ((1 - ct.ALPHA) * obs_dest[i][0] + ct.ALPHA * (explore_wt * random_pos[0] + (1 - explore_wt) * mean_pos[0]),
                                (1 - ct.ALPHA) * obs_dest[i][1] + ct.ALPHA * (explore_wt * random_pos[1] + (1 - explore_wt) * mean_pos[1]))
 
@@ -319,8 +334,8 @@ def ObsUpdate(obs_pos, obsvr, obs_dest, target_pos, targ, time_step, strategy):
                 # if no targets in sight, then go to lstp. If lstp is null, random exploret
                 if len(in_range) == 0:
                     if lstp[i] == ct.NULL:
-                        obs_dest[i] = (random.uniform(max(obs[0] - ct.AR_WID/8, 0), min(obs[0] + ct.AR_WID/8, ct.AR_WID)),
-                                       random.uniform(max(obs[1] - ct.AR_HEI/8, 0), min(obs[1] + ct.AR_HEI/8, ct.AR_HEI)))
+                        obs_dest[i] = (random.uniform(max(obs[0] - ct.AR_WID/4, 0), min(obs[0] + ct.AR_WID/4, ct.AR_WID)),
+                                       random.uniform(max(obs[1] - ct.AR_HEI/4, 0), min(obs[1] + ct.AR_HEI/4, ct.AR_HEI)))
                     else:
                         obs_dest[i] = lstp[i]
                         lstp[i] = ct.NULL
@@ -341,17 +356,18 @@ def ObsUpdate(obs_pos, obsvr, obs_dest, target_pos, targ, time_step, strategy):
                     if (obs[0] - target[0])**2 + (obs[1] - target[1])**2 <= ct.SENS_RAN[2]**2:
                         in_range.append(target)
                         if closest[2] > (obs[0] - target[0])**2 + (obs[1] - target[1])**2:
-                            closest = [target[0], target[1], (obs[0] - target[0])**2 + (obs[1] - target[1])**2]
+                            closest = [
+                                target[0], target[1], (obs[0] - target[0])**2 + (obs[1] - target[1])**2]
 
                 # if no targets in sight, then go to dest predicted from lstp. If lstp is null, random explore
                 if len(in_range) == 0:
                     if lstp[i] == ct.NULL:
-                        obs_dest[i] = (random.uniform(max(obs[0] - ct.AR_WID/8, 0), min(obs[0] + ct.AR_WID/8, ct.AR_WID)),
-                                       random.uniform(max(obs[1] - ct.AR_HEI/8, 0), min(obs[1] + ct.AR_HEI/8, ct.AR_HEI)))
+                        obs_dest[i] = (random.uniform(max(obs[0] - ct.AR_WID/4, 0), min(obs[0] + ct.AR_WID/4, ct.AR_WID)),
+                                       random.uniform(max(obs[1] - ct.AR_HEI/4, 0), min(obs[1] + ct.AR_HEI/4, ct.AR_HEI)))
                     else:
                         angle = ComputeAngle(obs, lstp[i])
-                        obs_dest[i] = (lstp[i][0] + 2 * ct.GAMMA * ct.TARG_SPEED[3] * math.cos(angle), 
-                                        lstp[i][1] + 2 * ct.GAMMA * ct.TARG_SPEED[3] * math.sin(angle))
+                        obs_dest[i] = (lstp[i][0] + 2 * ct.GAMMA * ct.TARG_SPEED[-1] * math.cos(angle), 
+                                        lstp[i][1] + 2 * ct.GAMMA * ct.TARG_SPEED[-1] * math.sin(angle))
                         lstp[i] = ct.NULL
                 # if targets in sight, then exploit. Store position in lstp.
                 else:
@@ -375,8 +391,8 @@ def ObsUpdate(obs_pos, obsvr, obs_dest, target_pos, targ, time_step, strategy):
                 # if no targets in sight, then go to dest predicted from k-observations (kstep_pos). If nearest_id is null, random explore
                 if len(in_range) == 0:
                     if nearest_id[i] == INVALID:
-                        obs_dest[i] = (random.uniform(max(obs[0] - ct.AR_WID/8, 0), min(obs[0] + ct.AR_WID/8, ct.AR_WID)),
-                                       random.uniform(max(obs[1] - ct.AR_HEI/8, 0), min(obs[1] + ct.AR_HEI/8, ct.AR_HEI)))
+                        obs_dest[i] = (random.uniform(max(obs[0] - ct.AR_WID/4, 0), min(obs[0] + ct.AR_WID/4, ct.AR_WID)),
+                                       random.uniform(max(obs[1] - ct.AR_HEI/4, 0), min(obs[1] + ct.AR_HEI/4, ct.AR_HEI)))
                     else:
                         cnt = 0
                         for j, pos in enumerate(kstep_pos[i]):
@@ -385,12 +401,12 @@ def ObsUpdate(obs_pos, obsvr, obs_dest, target_pos, targ, time_step, strategy):
                                 break
 
                         if cnt == 1:       # uStart and uEnd are the same
-                            obs_dest[i] = (random.uniform(max(obs[0] - ct.AR_WID/8, 0), min(obs[0] + ct.AR_WID/8, ct.AR_WID)),
-                                           random.uniform(max(obs[1] - ct.AR_HEI/8, 0), min(obs[1] + ct.AR_HEI/8, ct.AR_HEI)))
+                            obs_dest[i] = (random.uniform(max(obs[0] - ct.AR_WID/4, 0), min(obs[0] + ct.AR_WID/4, ct.AR_WID)),
+                                           random.uniform(max(obs[1] - ct.AR_HEI/4, 0), min(obs[1] + ct.AR_HEI/4, ct.AR_HEI)))
                         else:
                             angle = ComputeAngle(uStart[i], kstep_pos[i][cnt-1])
-                            obs_dest[i] = (kstep_pos[i][cnt-1][0] + (2 * ct.GAMMA - cnt+1) * ct.TARG_SPEED[3] * math.cos(angle), 
-                                            kstep_pos[i][cnt-1][1] + (2 * ct.GAMMA - cnt+1) * ct.TARG_SPEED[3] * math.sin(angle))
+                            obs_dest[i] = (kstep_pos[i][cnt-1][0] + (2 * ct.GAMMA - cnt+1) * ct.TARG_SPEED[-1] * math.cos(angle), 
+                                            kstep_pos[i][cnt-1][1] + (2 * ct.GAMMA - cnt+1) * ct.TARG_SPEED[-1] * math.sin(angle))
 
                     Nullify(i)
 
@@ -415,8 +431,8 @@ def ObsUpdate(obs_pos, obsvr, obs_dest, target_pos, targ, time_step, strategy):
                         in_range.append(target)
 
                 explore_wt = ComputeWt(len(in_range))
-                random_pos = (random.uniform(max(obs[0] - ct.AR_WID/8, 0), min(obs[0] + ct.AR_WID/8, ct.AR_WID)),
-                              random.uniform(max(obs[1] - ct.AR_HEI/8, 0), min(obs[1] + ct.AR_HEI/8, ct.AR_HEI)))
+                random_pos = (random.uniform(max(obs[0] - ct.AR_WID/4, 0), min(obs[0] + ct.AR_WID/4, ct.AR_WID)),
+                              random.uniform(max(obs[1] - ct.AR_HEI/4, 0), min(obs[1] + ct.AR_HEI/4, ct.AR_HEI)))
                 mean_pos = (0, 0)
                 if len(in_range) != 0:
                     mean_pos = (sum([target[0] for target in in_range]) / len(in_range),
@@ -440,14 +456,24 @@ def ObsUpdate(obs_pos, obsvr, obs_dest, target_pos, targ, time_step, strategy):
                                (1 - alpha) * obs_dest[i][1] + alpha * (explore_wt * random_pos[1] + (1 - explore_wt) * mean_pos[1]))  
 
             # nullify targ_info
-            targ_info = [ [] for _ in range(ct.NUM_OBS[-1]) ]     
+            targ_info = [ [] for _ in range(ct.NUM_OBS[-1]) ]  
 
+        # ddpg gives observer destination (x, y coordinates)
+        elif strategy.lower() == 'ddpg':
+            for i in range(len(obs_pos)):
+                angle = net[i].predict( obs_pos[i] )    #nwa
+                obs_dest[i] = (obs_pos[i][0] + ct.GAMMA*ct.OBS_SPEED * math.cos(angle),
+                               obs_pos[i][1] + ct.GAMMA*ct.OBS_SPEED * math.sin(angle))
+                obs_dest[i] = boundary_check( obs_dest[i], ct.AR_WID, ct.AR_HEI )
+                
         # Move in only Y-direction
         else:
             for i in range(len(obs_pos)):
                 obs_pos[i] = (obs_pos[i][0], obs_pos[i][1] + ct.OBS_SPEED)
                 if obs_pos[i][1] > ct.AR_HEI:
                     obs_pos[i] = (obs_pos[i][0], 0)
+                obsvr[i] = pg.draw.circle(pg.display.get_surface(), ct.GREEN,
+                                          obs_pos[i], ct.OBS_RAD)
 
 def ScrUpdate(target_pos, obs_pos, Score):
     for t in target_pos:

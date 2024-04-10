@@ -16,8 +16,8 @@ for l0, l10 in zip(f0.readlines(), f10.readlines()):
         sum0 /= 30
         sum10 /= 30
         rem0, rem10 = int(sum0) % 5, int(sum10) % 5
-        sum0 /= num_obs[rem0]
-        sum10 /= num_obs[rem10]
+        sum0 /= num_obs[2] # `num_obs[rem0]
+        sum10 /= num_obs[2] # num_obs[rem10]
 
         mt_0 += sum0
         mt_10 += sum10

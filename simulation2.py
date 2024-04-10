@@ -55,6 +55,9 @@ target_dest = target_pos.copy()
 if ct.USE_PYGAME == True:
     targ = [pg.draw.circle(pg.display.get_surface(), ct.RED, target, ct.TARG_RAD)
         for target in target_pos]
+else:
+    targ = [pg.draw.circle(pg.display.get_surface(), ct.RED, target, ct.TARG_RAD)
+        for target in target_pos]
 
 # Creating observers
 obs_pos = [ (random.uniform(0, ct.AR_WID), random.uniform(0, ct.AR_HEI))
