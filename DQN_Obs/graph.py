@@ -1,8 +1,10 @@
 # from matplotlib.lines import _LineStyle
 import matplotlib.pyplot as plt
 
-f0 = open('Observations/obs_comp_kstep.txt', 'r')             # Memorisation (change name)
-f10 = open('Observations/obs_comp_explexpl.txt', 'r')        # Explore-Exploit
+f0 = open('Observations/obs_comp_DQN_no observer.txt', 'r')             # Memorisation (change name)
+f10 = open('Observations/obs_comp_DQN_with observer.txt', 'r')  
+f20 = open('Observations/obs_comp_explexpl.txt', 'r') # Explore-Exploit
+f30 = open('Observations/obs_comp_kstep.txt', 'r')
 
 num_obs = [2, 6, 10, 14, 18]
 final_vec0 = []
