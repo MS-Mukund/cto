@@ -210,7 +210,8 @@ def TargUpdate(target_pos, targ, targ_dest, obs_pos, obs_dest, time_step, net):
             
             target_pos[i] = boundary_check( target_pos[i], ct.AR_WID, ct.AR_HEI )
 
-        targ[i] = pg.draw.circle( pg.display.get_surface(), ct.RED, target_pos[i], ct.TARG_RAD )
+        if ct.USE_PYGAME == True:
+            targ[i] = pg.draw.circle( pg.display.get_surface(), ct.RED, target_pos[i], ct.TARG_RAD )
 
     if time_step % ct.GAMMA == 0:
         for i, target in enumerate(target_pos):
@@ -253,21 +254,10 @@ def ObsUpdate(obs_pos, obsvr, obs_dest, target_pos, targ, time_step, strategy, n
         # update the observer ddpg with information of ALL (targets + observers) within sensor range
         elif strategy.lower() == 'ddpg' and time_step % ct.GAMMA != 0:              #nwa
             x, y = obs_pos[i]
-            other_obs = [(a,b) for (a,b) in obs_pos if (x-a)**2 + (y-b)**2 <= ct.SENS_RAN[2]**2 and (a,b) != (x,y) ]
+            other_obs = [(a,b) for (a,b) in obs_pos if (x-a)**2 + (y-b)**2 <= ct.SENS_RAN[2]**2 ]
             targs = [(a,b) for (a,b) in target_pos if (x-a)**2 + (y-b)**2 <= ct.SENS_RAN[2]**2]
             
-            ntar = 0
-            for t in targs:
-                n = 1
-                for o in other_obs:
-                    if (o[0] - t[0])**2 + (o[1] - t[1])**2 <= ct.SENS_RAN[2]**2: 
-                        n += 1 
-                
-                ntar += 1/n
-            
-            net[i].update_policy( ntar )     #nwa    
-            
-            
+            net[i].update_policy( len(targs)/len(other_obs) )     #nwa    
         
         global targ_info
         if strategy.lower() == 'randomise':      # gathers information at each time step
@@ -275,7 +265,8 @@ def ObsUpdate(obs_pos, obsvr, obs_dest, target_pos, targ, time_step, strategy, n
                 if (target[0] - obs_pos[i][0])**2 + (target[1] - obs_pos[i][1])**2 <= ct.SENS_RAN[2]**2:
                     ms.HandleInsert(i, targ_info, j, target, time_step % ct.GAMMA )
 
-        obsvr[i] = pg.draw.circle( pg.display.get_surface(), ct.GREEN, obs_pos[i], ct.OBS_RAD )
+        if ct.USE_PYGAME == True:
+            obsvr[i] = pg.draw.circle( pg.display.get_surface(), ct.GREEN, obs_pos[i], ct.OBS_RAD )
 
     if time_step % ct.GAMMA == 0:
         # K-means strategy
@@ -461,10 +452,10 @@ def ObsUpdate(obs_pos, obsvr, obs_dest, target_pos, targ, time_step, strategy, n
         # ddpg gives observer destination (x, y coordinates)
         elif strategy.lower() == 'ddpg':
             for i in range(len(obs_pos)):
-                angle = net[i].predict( obs_pos[i] )    #nwa
-                obs_dest[i] = (obs_pos[i][0] + ct.GAMMA*ct.OBS_SPEED * math.cos(angle),
-                               obs_pos[i][1] + ct.GAMMA*ct.OBS_SPEED * math.sin(angle))
-                obs_dest[i] = boundary_check( obs_dest[i], ct.AR_WID, ct.AR_HEI )
+                obs_dest[i] = net[i].select_action( obs_pos[i] )    #nwa
+                # obs_dest[i] = (obs_pos[i][0] + ct.GAMMA*ct.OBS_SPEED * math.cos(angle),
+                            #    obs_pos[i][1] + ct.GAMMA*ct.OBS_SPEED * math.sin(angle))
+                # obs_dest[i] = boundary_check( obs_dest[i], ct.AR_WID, ct.AR_HEI )
                 
         # Move in only Y-direction
         else:
@@ -472,7 +463,8 @@ def ObsUpdate(obs_pos, obsvr, obs_dest, target_pos, targ, time_step, strategy, n
                 obs_pos[i] = (obs_pos[i][0], obs_pos[i][1] + ct.OBS_SPEED)
                 if obs_pos[i][1] > ct.AR_HEI:
                     obs_pos[i] = (obs_pos[i][0], 0)
-                obsvr[i] = pg.draw.circle(pg.display.get_surface(), ct.GREEN,
+                if ct.USE_PYGAME == True:
+                    obsvr[i] = pg.draw.circle(pg.display.get_surface(), ct.GREEN,
                                           obs_pos[i], ct.OBS_RAD)
 
 def ScrUpdate(target_pos, obs_pos, Score):

@@ -5,54 +5,78 @@ import torch
 import torch.nn as nn
 from torch.optim import Adam
 
-from model import (Actor, Critic)
-from memory import SequentialMemory
-from random_process import OrnsteinUhlenbeckProcess
-from util import *
+import sys
+# relative imports
+from .util import *
+from .model import (Actor, Critic)
+from .memory import SequentialMemory
+from .random_process import OrnsteinUhlenbeckProcess
 
+sys.path.append('../oldscripts/')
+import constant
+import update
 # from ipdb import set_trace as debug
 
 criterion = nn.MSELoss()
 
-class DDPG(object):
-    def __init__(self, nb_states, nb_actions, args):
-        
-        if args.seed > 0:
-            self.seed(args.seed)
+H1 = 40
+H2 = 30
+INIT_W = 3e-3
+LR = 1e-4
+RATE = 1e-3
+RMSIZE = 10000
+WINDOW_LENGTH = 1
+OU_THETA = 0.15
+OU_MU = 0.0 
+OU_SIGMA = 0.2
+BSIZE = 64
+TAU = 0.001
+DISCOUNT = 0.99
+EPSILON = 5000
 
-        self.nb_states = nb_states
-        self.nb_actions= nb_actions
+class DDPG(object):
+    def __init__(self, num_observ, num_adv, WID, HT, init_pos):
+        self.nb_states = num_observ * num_adv
+        self.nb_actions = WID * HT    # (x, y) coordinates, 100 divisions per unit length 
+        self.WID = WID
+        self.HT = HT
+        self.num_adv = num_adv
+        self.num_observ = num_observ
         
         # Create Actor and Critic Network
-        net_cfg = {
-            'hidden1':args.hidden1, 
-            'hidden2':args.hidden2, 
-            'init_w':args.init_w
+        net_cfg = {  
+            'hidden1': H1,
+            'hidden2': H2, 
+            'init_w': INIT_W
         }
+        
+        # print("before actor")
         self.actor = Actor(self.nb_states, self.nb_actions, **net_cfg)
+        # print("before targ")
         self.actor_target = Actor(self.nb_states, self.nb_actions, **net_cfg)
-        self.actor_optim  = Adam(self.actor.parameters(), lr=args.prate)
+        # print("before optim")
+        self.actor_optim  = Adam(self.actor.parameters(), lr=LR)
 
         self.critic = Critic(self.nb_states, self.nb_actions, **net_cfg)
         self.critic_target = Critic(self.nb_states, self.nb_actions, **net_cfg)
-        self.critic_optim  = Adam(self.critic.parameters(), lr=args.rate)
+        self.critic_optim  = Adam(self.critic.parameters(), lr=RATE)
 
         hard_update(self.actor_target, self.actor) # Make sure target is with the same weight
         hard_update(self.critic_target, self.critic)
         
         #Create replay buffer
-        self.memory = SequentialMemory(limit=args.rmsize, window_length=args.window_length)
-        self.random_process = OrnsteinUhlenbeckProcess(size=nb_actions, theta=args.ou_theta, mu=args.ou_mu, sigma=args.ou_sigma)
+        self.memory = SequentialMemory(limit=RMSIZE, window_length=1)
+        self.random_process = OrnsteinUhlenbeckProcess(size=self.nb_actions, theta=OU_THETA, mu=OU_MU, sigma=OU_SIGMA)
 
         # Hyper-parameters
-        self.batch_size = args.bsize
-        self.tau = args.tau
-        self.discount = args.discount
-        self.depsilon = 1.0 / args.epsilon
+        self.batch_size = BSIZE
+        self.tau = TAU
+        self.discount = DISCOUNT
+        self.depsilon = 1.0 / EPSILON
 
         # 
         self.epsilon = 1.0
-        self.s_t = None # Most recent state
+        self.s_t = init_pos
         self.a_t = None # Most recent action
         self.is_training = True
 
@@ -61,24 +85,25 @@ class DDPG(object):
 
     def update_policy(self):
         # Sample batch
+    
         state_batch, action_batch, reward_batch, \
         next_state_batch, terminal_batch = self.memory.sample_and_split(self.batch_size)
 
         # Prepare for the target q batch
+        return 
         next_q_values = self.critic_target([
             to_tensor(next_state_batch, volatile=True),
             self.actor_target(to_tensor(next_state_batch, volatile=True)),
         ])
         next_q_values.volatile=False
 
-        target_q_batch = to_tensor(reward_batch) + \
+        reward_ratio = reward_batch / (reward_batch.sum(axis=1, keepdims=True) + 1e-8) 
+        target_q_batch = to_tensor(reward_ratio) + \
             self.discount*to_tensor(terminal_batch.astype(np.float))*next_q_values
 
         # Critic update
         self.critic.zero_grad()
-
         q_batch = self.critic([ to_tensor(state_batch), to_tensor(action_batch) ])
-        
         value_loss = criterion(q_batch, target_q_batch)
         value_loss.backward()
         self.critic_optim.step()
@@ -121,18 +146,27 @@ class DDPG(object):
         self.a_t = action
         return action
 
-    def select_action(self, s_t, decay_epsilon=True):
+    def select_action(self, s_t, decay_epsilon=True):        
+        # count number of ones in the first num_adv elements
+        num_adv = np.sum(s_t[:self.num_adv])
+        num_observ = np.sum(s_t[self.num_adv:])
+        
+        targ_rew = num_adv / (num_observ + 1)
         action = to_numpy(
             self.actor(to_tensor(np.array([s_t])))
         ).squeeze(0)
-        action += self.is_training*max(self.epsilon, 0)*self.random_process.sample()
-        action = np.clip(action, -1., 1.)
-
+        action += self.is_training*max(self.epsilon, 0)*self.random_process.sample() 
+        
         if decay_epsilon:
             self.epsilon -= self.depsilon
         
-        self.a_t = action
-        return action
+        action = np.clip(action, -1., 1.)
+        # action - change from angle to (x, y) coordinates   
+        final_x = self.s_t[0] + constant.OBS_SPEED * np.cos(action)
+        final_y = self.s_t[1] + constant.OBS_SPEED * np.sin(action)
+        
+        self.action = np.array([final_x, final_y])
+        return self.action
 
     def reset(self, obs):
         self.s_t = obs

@@ -15,6 +15,7 @@ else:
     import pygame as pg
     
 from DDPG.ddpg import DDPG
+import argparse
 
 # Model as a RL problem
 # Reward - updated at each iteration, based on ALL(targets + observers within observer range) 
@@ -40,6 +41,7 @@ ct.OBS_SPEED *= factor
 ct.SENS_RAN[2] = 25
 ct.TARG_RAD *= factor
 ct.OBS_RAD *= factor
+ct.USE_PYGAME = False
 
 if ct.USE_PYGAME == True:
     pg.init()
@@ -61,7 +63,7 @@ target_pos = [(random.uniform(0, ct.AR_WID), random.uniform(0, ct.AR_HEI))
 target_dest = target_pos.copy()
 
 # print(target_pos)
-
+targ = []
 if ct.USE_PYGAME == True:
     targ = [pg.draw.circle(pg.display.get_surface(), ct.RED, target, ct.TARG_RAD)
         for target in target_pos]
@@ -76,19 +78,53 @@ obs_pos = [ (random.uniform(0, ct.AR_WID), random.uniform(0, ct.AR_HEI))
 #         obs_pos.append((float(a), float(b)))
 #         print(obs_pos[-1][0], obs_pos[-1][1])
 obs_dest = obs_pos.copy()
+obsvr = []
 if ct.USE_PYGAME == True:
     obsvr = [pg.draw.circle(pg.display.get_surface(), ct.GREEN, obs, ct.OBS_RAD)
          for obs in obs_pos]
 
-net = [ DDPG(ct.NUM_TARGET[-1]*100, 360*100) for _ in range(len(ct.NUM_TARGET[-1])) ]        
-# nwa
+# parser = argparse.ArgumentParser(description='PyTorch on TORCS with Multi-modal')
+
+# parser.add_argument('--mode', default='train', type=str, help='support option: train/test')
+# parser.add_argument('--env', default='Pendulum-v0', type=str, help='open-ai gym environment')
+# parser.add_argument('--hidden1', default=400, type=int, help='hidden num of first fully connect layer')
+# parser.add_argument('--hidden2', default=300, type=int, help='hidden num of second fully connect layer')
+# parser.add_argument('--rate', default=0.001, type=float, help='learning rate')
+# parser.add_argument('--prate', default=0.0001, type=float, help='policy net learning rate (only for DDPG)')
+# parser.add_argument('--warmup', default=100, type=int, help='time without training but only filling the replay memory')
+# parser.add_argument('--discount', default=0.99, type=float, help='')
+# parser.add_argument('--bsize', default=64, type=int, help='minibatch size')
+# parser.add_argument('--rmsize', default=6000000, type=int, help='memory size')
+# parser.add_argument('--window_length', default=1, type=int, help='')
+# parser.add_argument('--tau', default=0.001, type=float, help='moving average for target network')
+# parser.add_argument('--ou_theta', default=0.15, type=float, help='noise theta')
+# parser.add_argument('--ou_sigma', default=0.2, type=float, help='noise sigma') 
+# parser.add_argument('--ou_mu', default=0.0, type=float, help='noise mu') 
+# parser.add_argument('--validate_episodes', default=20, type=int, help='how many episode to perform during validate experiment')
+# parser.add_argument('--max_episode_length', default=500, type=int, help='')
+# parser.add_argument('--validate_steps', default=2000, type=int, help='how many steps to perform a validate experiment')
+# parser.add_argument('--output', default='output', type=str, help='')
+# parser.add_argument('--debug', dest='debug', action='store_true')
+# parser.add_argument('--init_w', default=0.003, type=float, help='') 
+# parser.add_argument('--train_iter', default=200000, type=int, help='train iters each timestep')
+# parser.add_argument('--epsilon', default=50000, type=int, help='linear decay of exploration policy')
+# parser.add_argument('--seed', default=-1, type=int, help='')
+# parser.add_argument('--resume', default='default', type=str, help='Resuming model path for testing')
+
+# args = parser.parse_args()
+print("before creating model")
+net = [ DDPG(ct.NUM_OBS[-1], ct.NUM_TARGET[-1], ct.AR_WID, ct.AR_HEI, obs_pos[i]) for i in range(ct.NUM_OBS[-1]) ]        # nwa
+print("after creating model")
 
 Score = 0
 gamma = 0
 time_step = 0
 pause = False
+print("start")
 while time_step < ct.TOTAL_TIME:
+    print("time step: ", time_step)
     if ct.USE_PYGAME == True:
+        print("here")
         for event in pg.event.get():
             if event.type == pg.QUIT:
                 time_step = ct.TOTAL_TIME    # Break the loop
@@ -123,8 +159,10 @@ while time_step < ct.TOTAL_TIME:
         pg.time.delay(100)
 
     else:
-        up.TargUpdate( target_pos, target_dest, obs_pos, time_step, net )
-        up.ObsUpdate( obs_pos, obs_dest, target_pos, time_step, strategy, net )
+        print("here, in else")
+        print(f"time_step: {time_step} Score: {Score}")
+        up.TargUpdate( target_pos, targ, target_dest, obs_pos, obs_dest, time_step, net )
+        up.ObsUpdate( obs_pos, obsvr, obs_dest, target_pos, targ, time_step, strategy, net )
 
         Score = up.ScrUpdate( target_pos, obs_pos, Score )
 

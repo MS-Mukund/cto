@@ -2,6 +2,7 @@
 import os
 import torch
 from torch.autograd import Variable
+import random
 
 USE_CUDA = torch.cuda.is_available()
 FLOAT = torch.cuda.FloatTensor if USE_CUDA else torch.FloatTensor
@@ -32,6 +33,9 @@ def soft_update(target, source, tau):
 def hard_update(target, source):
     for target_param, param in zip(target.parameters(), source.parameters()):
             target_param.data.copy_(param.data)
+            
+def find_sum(num):
+    return random.uniform(1,1.5) * num
 
 def get_output_folder(parent_dir, env_name):
     """Return save folder.
