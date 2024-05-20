@@ -108,7 +108,7 @@ while time_step < ct.TOTAL_TIME:
         print(f"time_step: {time_step} Score: {Score}")
         print(f"obs_pos = {[(int(f),int(s)) for f,s in obs_pos]}")
         print(f"target_pos = {[(int(f),int(s)) for f,s in target_pos]}")
-        print()
+        # print()
         pg.time.delay(100)
 
     else:

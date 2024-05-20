@@ -10,6 +10,10 @@ import sys
 # import numpy as np
 
 import misc as ms
+import torch
+import numpy as np
+
+prev_st = [0 for _ in range(ct.NUM_OBS[-1])] + [0 for _ in range(ct.NUM_TARGET[-1])] 
 
 # global variables for this file
 lstp = [ct.NULL for _ in range(ct.NUM_TARGET[-1])]
@@ -236,6 +240,7 @@ def TargUpdate(target_pos, targ, targ_dest, obs_pos, obs_dest, time_step, net):
 def ObsUpdate(obs_pos, obsvr, obs_dest, target_pos, targ, time_step, strategy, net):
     # update observer position
     for i, obs in enumerate(obs_pos):
+        # print('iter: ', i, obs_pos[i], obs_dest[i])
         if obs_pos[i] != obs_dest[i]:
             angle = ComputeAngle(obs, obs_dest[i])
 
@@ -254,10 +259,23 @@ def ObsUpdate(obs_pos, obsvr, obs_dest, target_pos, targ, time_step, strategy, n
         # update the observer ddpg with information of ALL (targets + observers) within sensor range
         elif strategy.lower() == 'ddpg' and time_step % ct.GAMMA != 0:              #nwa
             x, y = obs_pos[i]
-            other_obs = [(a,b) for (a,b) in obs_pos if (x-a)**2 + (y-b)**2 <= ct.SENS_RAN[2]**2 ]
-            targs = [(a,b) for (a,b) in target_pos if (x-a)**2 + (y-b)**2 <= ct.SENS_RAN[2]**2]
+            other_obs, other_targs = [], []
+            for a, b in obs_pos: 
+                if (x-a)**2 + (y-b)**2 <= ct.SENS_RAN[2]**2:
+                    other_obs.append((a,b))
+            for a, b in target_pos:
+                if (x-a)**2 + (y-b)**2 <= ct.SENS_RAN[2]**2:
+                    other_targs.append((a,b))
             
-            net[i].update_policy( len(targs)/len(other_obs) )     #nwa    
+            input_list = [1 for _ in range(len(other_targs))] + [0 for _ in range(ct.NUM_TARGET[-1] - len(other_targs))] + [1 for _ in range(len(other_obs))] + [0 for _ in range(ct.NUM_OBS[-1] - len(other_obs))] 
+            # convert to tensor
+            input = torch.tensor(input_list, dtype=torch.float32)
+            input = input.unsqueeze(0)
+            # print('input: ', input, input.shape)
+            
+            net[i].observe(len(other_targs)/len(other_obs), np.array(obs_dest[i]), np.array(input))
+            if time_step > ct.GAMMA - 2:
+                net[i].update_policy()  
         
         global targ_info
         if strategy.lower() == 'randomise':      # gathers information at each time step
@@ -451,11 +469,25 @@ def ObsUpdate(obs_pos, obsvr, obs_dest, target_pos, targ, time_step, strategy, n
 
         # ddpg gives observer destination (x, y coordinates)
         elif strategy.lower() == 'ddpg':
-            for i in range(len(obs_pos)):
-                obs_dest[i] = net[i].select_action( obs_pos[i] )    #nwa
-                # obs_dest[i] = (obs_pos[i][0] + ct.GAMMA*ct.OBS_SPEED * math.cos(angle),
-                            #    obs_pos[i][1] + ct.GAMMA*ct.OBS_SPEED * math.sin(angle))
-                # obs_dest[i] = boundary_check( obs_dest[i], ct.AR_WID, ct.AR_HEI )
+            x = obs_pos[i][0] 
+            y = obs_pos[i][1]
+            for _ in range(len(obs_pos)):
+                other_obs = [(a,b) for (a,b) in obs_pos if (x-a)**2 + (y-b)**2 <= ct.SENS_RAN[2]**2 ]
+            other_targs = [(a,b) for (a,b) in target_pos if (x-a)**2 + (y-b)**2 <= ct.SENS_RAN[2]**2]
+            
+            input = [1 for _ in range(len(other_targs))] + [0 for _ in range(ct.NUM_TARGET[-1] - len(other_targs))] + [1 for _ in range(len(other_obs))] + [0 for _ in range(ct.NUM_OBS[-1] - len(other_obs))] 
+            # convert to tensor
+            input = torch.tensor(input, dtype=torch.float32)
+            input = input.unsqueeze(0)
+
+            obs_dest[i] = net[i].select_action( x, y, input )    #nwa
+            # convert into tuple
+            print('previous dest: ', obs_dest[i])
+            obs_dest[i] = tuple(obs_dest[i][0].tolist()[0])
+            print('final dest: ', obs_dest[i])
+            # obs_dest[i] = (obs_pos[i][0] + ct.GAMMA*ct.OBS_SPEED * math.cos(angle),
+                        #    obs_pos[i][1] + ct.GAMMA*ct.OBS_SPEED * math.sin(angle))
+            # obs_dest[i] = boundary_check( obs_dest[i], ct.AR_WID, ct.AR_HEI )
                 
         # Move in only Y-direction
         else:

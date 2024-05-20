@@ -29,7 +29,7 @@ WINDOW_LENGTH = 1
 OU_THETA = 0.15
 OU_MU = 0.0 
 OU_SIGMA = 0.2
-BSIZE = 64
+BSIZE = 1
 TAU = 0.001
 DISCOUNT = 0.99
 EPSILON = 5000
@@ -40,25 +40,26 @@ class DDPG(object):
         self.nb_actions = WID * HT    # (x, y) coordinates, 100 divisions per unit length 
         self.WID = WID
         self.HT = HT
-        self.num_adv = num_adv
+        self.num_adv = int(num_adv)
         self.num_observ = num_observ
+        self.H1 = H1
         
         # Create Actor and Critic Network
         net_cfg = {  
-            'hidden1': H1,
+            'hidden1': self.H1,
             'hidden2': H2, 
             'init_w': INIT_W
         }
         
         # print("before actor")
-        self.actor = Actor(self.nb_states, self.nb_actions, **net_cfg)
+        self.actor = Actor(int(num_adv) + int(num_observ), self.nb_states, self.nb_actions, **net_cfg)
         # print("before targ")
-        self.actor_target = Actor(self.nb_states, self.nb_actions, **net_cfg)
+        self.actor_target = Actor(num_adv + num_observ, self.nb_states, self.nb_actions, **net_cfg)
         # print("before optim")
         self.actor_optim  = Adam(self.actor.parameters(), lr=LR)
 
-        self.critic = Critic(self.nb_states, self.nb_actions, **net_cfg)
-        self.critic_target = Critic(self.nb_states, self.nb_actions, **net_cfg)
+        self.critic = Critic(num_adv + num_observ, self.nb_states, self.nb_actions, **net_cfg)
+        self.critic_target = Critic(num_adv + num_observ, self.nb_states, self.nb_actions, **net_cfg)
         self.critic_optim  = Adam(self.critic.parameters(), lr=RATE)
 
         hard_update(self.actor_target, self.actor) # Make sure target is with the same weight
@@ -66,7 +67,7 @@ class DDPG(object):
         
         #Create replay buffer
         self.memory = SequentialMemory(limit=RMSIZE, window_length=1)
-        self.random_process = OrnsteinUhlenbeckProcess(size=self.nb_actions, theta=OU_THETA, mu=OU_MU, sigma=OU_SIGMA)
+        self.random_process = OrnsteinUhlenbeckProcess(size=2, theta=OU_THETA, mu=OU_MU, sigma=OU_SIGMA)
 
         # Hyper-parameters
         self.batch_size = BSIZE
@@ -87,22 +88,24 @@ class DDPG(object):
         # Sample batch
     
         state_batch, action_batch, reward_batch, \
-        next_state_batch, terminal_batch = self.memory.sample_and_split(self.batch_size)
+        next_state_batch = self.memory.sample_and_split(self.batch_size)
 
         # Prepare for the target q batch
-        return 
+        # return 
         next_q_values = self.critic_target([
             to_tensor(next_state_batch, volatile=True),
             self.actor_target(to_tensor(next_state_batch, volatile=True)),
         ])
         next_q_values.volatile=False
 
-        reward_ratio = reward_batch / (reward_batch.sum(axis=1, keepdims=True) + 1e-8) 
+        # print(reward_batch.shape)
+        reward_ratio = reward_batch / (reward_batch.sum(keepdims=True) + 1e-8) 
         target_q_batch = to_tensor(reward_ratio) + \
-            self.discount*to_tensor(terminal_batch.astype(np.float))*next_q_values
+            self.discount*next_q_values
 
         # Critic update
         self.critic.zero_grad()
+        # print('critic update: ', state_batch, action_batch)
         q_batch = self.critic([ to_tensor(state_batch), to_tensor(action_batch) ])
         value_loss = criterion(q_batch, target_q_batch)
         value_loss.backward()
@@ -136,9 +139,9 @@ class DDPG(object):
         self.critic.cuda()
         self.critic_target.cuda()
 
-    def observe(self, r_t, s_t1, done):
+    def observe(self, r_t, a_t, s_t1):
         if self.is_training:
-            self.memory.append(self.s_t, self.a_t, r_t, done)
+            self.memory.append(self.s_t, a_t, r_t, False)
             self.s_t = s_t1
 
     def random_action(self):
@@ -146,12 +149,12 @@ class DDPG(object):
         self.a_t = action
         return action
 
-    def select_action(self, s_t, decay_epsilon=True):        
+    def select_action(self, x, y, s_t, decay_epsilon=True):        
         # count number of ones in the first num_adv elements
-        num_adv = np.sum(s_t[:self.num_adv])
-        num_observ = np.sum(s_t[self.num_adv:])
-        
-        targ_rew = num_adv / (num_observ + 1)
+        num_adv = np.sum(np.array(s_t[:self.num_adv]))
+        num_observ = np.sum(np.array(s_t[self.num_adv:]))
+              
+        targ_rew = int(num_adv) / (num_observ + 1)
         action = to_numpy(
             self.actor(to_tensor(np.array([s_t])))
         ).squeeze(0)
@@ -162,8 +165,10 @@ class DDPG(object):
         
         action = np.clip(action, -1., 1.)
         # action - change from angle to (x, y) coordinates   
-        final_x = self.s_t[0] + constant.OBS_SPEED * np.cos(action)
-        final_y = self.s_t[1] + constant.OBS_SPEED * np.sin(action)
+        final_x = x + constant.GAMMA * constant.OBS_SPEED * np.cos(action)
+        final_y = y + constant.GAMMA * constant.OBS_SPEED * np.sin(action)
+        final_x = np.clip(final_x, 0, constant.AR_WID)
+        final_y = np.clip(final_y, 0, constant.AR_HEI)
         
         self.action = np.array([final_x, final_y])
         return self.action
@@ -172,26 +177,26 @@ class DDPG(object):
         self.s_t = obs
         self.random_process.reset_states()
 
-    def load_weights(self, output):
+    def load_weights(self, output, ind):
         if output is None: return
 
         self.actor.load_state_dict(
-            torch.load('{}/actor.pkl'.format(output))
+            torch.load('{}/actor{}.pkl'.format(output, ind))
         )
 
         self.critic.load_state_dict(
-            torch.load('{}/critic.pkl'.format(output))
+            torch.load('{}/critic{}.pkl'.format(output, ind))
         )
 
 
-    def save_model(self,output):
+    def save_model(self,output, i):
         torch.save(
             self.actor.state_dict(),
-            '{}/actor.pkl'.format(output)
+            '{}/actor{}.pkl'.format(output, i)
         )
         torch.save(
             self.critic.state_dict(),
-            '{}/critic.pkl'.format(output)
+            '{}/critic{}.pkl'.format(output, i)
         )
 
     def seed(self,s):

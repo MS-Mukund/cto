@@ -1,19 +1,13 @@
 import random
 import sys
+import os
+import numpy as np
 
 #files
 import constant as ct
 import update as up
 import misc 
 
-# command-line arguments
-if sys.argv[1].lower() == 'no':
-    # print(f"bye alpha = {ct.ALPHA}")
-    # exit()
-    ct.USE_PYGAME = False
-else:
-    import pygame as pg
-    
 from DDPG.ddpg import DDPG
 import argparse
 
@@ -31,6 +25,15 @@ ct.NUM_OBS[-1] = int(sys.argv[3]) if len(sys.argv) >= 4 else ct.NUM_OBS[-1]
 ct.NUM_TARGET[-1] = int(sys.argv[4]) if len(sys.argv) >= 5 else ct.NUM_TARGET[-1]
 ct.TARG_SPEED[3] = float(sys.argv[5]) if len(sys.argv) >= 6 else ct.TARG_SPEED[3]
 ct.MODEL = int(sys.argv[6]) if len(sys.argv) >= 7 else ct.MODEL
+FRACT = (int)(sys.argv[7]) if len(sys.argv) >= 8 else 1
+# # command-line arguments
+# if len(sys.argv) >= 8  and sys.argv[7].lower() == 'no':
+#     # print(f"bye alpha = {ct.ALPHA}")
+#     # exit()
+#     ct.USE_PYGAME = False
+# else:
+#     import pygame as pg
+    
 ct.TOTAL_TIME = 250
 
 factor = 4
@@ -113,18 +116,25 @@ if ct.USE_PYGAME == True:
 
 # args = parser.parse_args()
 print("before creating model")
-net = [ DDPG(ct.NUM_OBS[-1], ct.NUM_TARGET[-1], ct.AR_WID, ct.AR_HEI, obs_pos[i]) for i in range(ct.NUM_OBS[-1]) ]        # nwa
+init_st = np.zeros(ct.NUM_OBS[-1] + ct.NUM_TARGET[-1])
+net = [ DDPG(ct.NUM_OBS[-1], ct.NUM_TARGET[-1], ct.AR_WID, ct.AR_HEI, init_st) for i in range(ct.NUM_OBS[-1]) ]        # nwa
+# check if actor.pkl and critic.pkl exist
+for i in range(ct.NUM_OBS[-1]):
+    if os.path.exists("actor" + str(i) + ".pkl") and os.path.exists("critic" + str(i) + ".pkl"):
+        print("loading model")
+        net[i].load_weights(".", i)
+        
 print("after creating model")
 
 Score = 0
 gamma = 0
 time_step = 0
 pause = False
-print("start")
+# print("start")
 while time_step < ct.TOTAL_TIME:
-    print("time step: ", time_step)
+    # print("time step: ", time_step)
     if ct.USE_PYGAME == True:
-        print("here")
+        # print("here")
         for event in pg.event.get():
             if event.type == pg.QUIT:
                 time_step = ct.TOTAL_TIME    # Break the loop
@@ -142,7 +152,7 @@ while time_step < ct.TOTAL_TIME:
         up.ObsUpdate( obs_pos, obsvr, obs_dest, target_pos, targ, time_step, strategy, net )
 
         # Check if the target is observed
-        Score = up.ScrUpdate( target_pos, obs_pos, Score, net )
+        Score = up.ScrUpdate( target_pos, obs_pos, Score )
         
         # Display the score
         if pause == False:
@@ -159,20 +169,27 @@ while time_step < ct.TOTAL_TIME:
         pg.time.delay(100)
 
     else:
-        print("here, in else")
+        # print("here, in else")
         print(f"time_step: {time_step} Score: {Score}")
+        # print('before target update obs_pos: ', obs_pos)
         up.TargUpdate( target_pos, targ, target_dest, obs_pos, obs_dest, time_step, net )
+        # print('before obs update obs_pos: ', obs_pos)
         up.ObsUpdate( obs_pos, obsvr, obs_dest, target_pos, targ, time_step, strategy, net )
 
+        # print('before score update obs_pos: ', obs_pos)
         Score = up.ScrUpdate( target_pos, obs_pos, Score )
 
     time_step += 1
     # pg.time.delay(10)
 
+# save model
+for i in range(ct.NUM_OBS[-1]):
+    net[i].save_model(".", i)
+
 Score /= ct.TOTAL_TIME
 # fname = 'obs_comp_' + strategy + '.txt'
-fname = 'a.txt'
-with open(fname, 'w') as f:
+fname = 'ddpg.txt'
+with open(fname, 'a') as f:
     f.write(f"{Score}\n")
 
 if ct.USE_PYGAME == True:

@@ -50,13 +50,13 @@ final_vec0.append(vec0)
     # plt.plot([3, 9, 15, 21, 27], vec0, _LineStyle='dashed', label='Speed {}'.format(speed))
 num_targs = [3, 9, 15, 21, 27]
 # plt.plot(num_targs, final_vec0[0], linestyle='solid', marker='o', color='green', label='kstep controlled')
-plt.plot(num_targs, final_vec0[1], linestyle='dashed', marker='D', color='blue', label='DDQN one-hot')
+plt.plot(num_targs, final_vec0[1], linestyle='dashed', marker='D', color='blue', label='DDPG one-hot')
 plt.plot(num_targs, final_vec0[2], linestyle='dotted', marker='^', color='red', label='kstep')
 
 plt.legend()
-plt.title('DDQN')    # change title
+plt.title('DDPG, replay memory, one-hot encoding')    # change title
 plt.xlabel('Number of targets')
 plt.ylabel('Average percentage')
 
 # plt.show()
-plt.savefig('DDQN_comparison.png') # change filename
+plt.savefig('DDPG_comparison.png') # change filename
