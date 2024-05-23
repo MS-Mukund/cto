@@ -204,9 +204,6 @@ while time_step < ct.TOTAL_TIME:
 
         # print('before score update obs_pos: ', obs_pos)
         Score = up.ScrUpdate( target_pos, obs_pos, Score )
-        if strategy.lower() == 'randomise':
-            with open('a.txt', 'a') as f:
-                f.write(f"{Score}\n")
 
     time_step += 1
     # pg.time.delay(10)
