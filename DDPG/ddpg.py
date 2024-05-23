@@ -24,7 +24,7 @@ H2 = 30
 INIT_W = 3e-3
 LR = 1e-4
 RATE = 1e-3
-RMSIZE = 10000
+RMSIZE = 100000
 WINDOW_LENGTH = 1
 OU_THETA = 0.15
 OU_MU = 0.0 
@@ -35,7 +35,7 @@ DISCOUNT = 0.99
 EPSILON = 5000
 
 class DDPG(object):
-    def __init__(self, num_observ, num_adv, WID, HT, init_pos):
+    def __init__(self, num_observ, num_adv, WID, HT, init_pos, filename=None):
         self.nb_states = num_observ * num_adv
         self.nb_actions = WID * HT    # (x, y) coordinates, 100 divisions per unit length 
         self.WID = WID
@@ -67,6 +67,18 @@ class DDPG(object):
         
         #Create replay buffer
         self.memory = SequentialMemory(limit=RMSIZE, window_length=1)
+        # save np.load
+        np_load_old = np.load
+
+        # modify the default parameters of np.load
+        np.load = lambda *a,**k: np_load_old(*a, allow_pickle=True, **k)
+
+        if os.path.exists(filename):
+            self.memory.load(filename)
+
+        # restore np.load for future normal usage
+        np.load = np_load_old
+        
         self.random_process = OrnsteinUhlenbeckProcess(size=2, theta=OU_THETA, mu=OU_MU, sigma=OU_SIGMA)
 
         # Hyper-parameters
@@ -154,7 +166,7 @@ class DDPG(object):
         num_adv = np.sum(np.array(s_t[:self.num_adv]))
         num_observ = np.sum(np.array(s_t[self.num_adv:]))
               
-        targ_rew = int(num_adv) / (num_observ + 1)
+        targ_rew = int(num_adv) / (num_observ)
         action = to_numpy(
             self.actor(to_tensor(np.array([s_t])))
         ).squeeze(0)
@@ -163,14 +175,28 @@ class DDPG(object):
         if decay_epsilon:
             self.epsilon -= self.depsilon
         
-        action = np.clip(action, -1., 1.)
+        # check if the action is within the bounds
+        # if not, then set it to the bounds
+        # print('action: ', action)
+        action = action[0]
+        for i in range(len(action)):
+            if action[i] < 0:
+                action[i] = -action[i]
+            
+        if action[0] > constant.AR_WID:
+            action[0] = constant.AR_WID - (action[0] - constant.AR_WID)
+        if action[1] > constant.AR_HEI:
+            action[1] = constant.AR_HEI - (action[1] - constant.AR_HEI)        
         # action - change from angle to (x, y) coordinates   
-        final_x = x + constant.GAMMA * constant.OBS_SPEED * np.cos(action)
-        final_y = y + constant.GAMMA * constant.OBS_SPEED * np.sin(action)
-        final_x = np.clip(final_x, 0, constant.AR_WID)
-        final_y = np.clip(final_y, 0, constant.AR_HEI)
+        # final_x = constant.GAMMA * constant.OBS_SPEED * np.cos(action)
+        # final_y = constant.GAMMA * constant.OBS_SPEED * np.sin(action)
+        # print('final_x: ', final_x, 'final_y: ', final_y)
+        # final_x = -final_x if x + final_x < 0 else final_x
+        # 
+        # final_x = x + final_x
+        # final_y = y + final_y
         
-        self.action = np.array([final_x, final_y])
+        self.action = action
         return self.action
 
     def reset(self, obs):

@@ -6,6 +6,9 @@ TARG_SPEED = [0.2, 0.5, 0.8, 1.0, 1.2, 1.5]
 SENS_RAN     = [5, 10, 15, 20, 25]
 OBS_SPEED = 1.0
 
+arr = []
+ind = -1
+
 TARG_RAD = 2
 OBS_RAD = 2
 
@@ -27,6 +30,7 @@ YELLOW = (228, 155, 15)
 
 #randomisation probability
 T_PROB = 0.7
+S = 0
 
 # null position
 NULL = (-1, -1)
@@ -38,3 +42,7 @@ MAX = 10 ** 9
 USE_PYGAME = True
 
 MODEL = 0   # 0: 0-1, 1: 0-.5-1, 2: (1/(num_targets+1))**2
+def normalise(Score):
+    global arr, ind
+    ind += 1
+    return int(arr[ind])

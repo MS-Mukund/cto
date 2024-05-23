@@ -223,7 +223,20 @@ def TargUpdate(target_pos, targ, targ_dest, obs_pos, obs_dest, time_step, net):
             for obs in obs_pos:
                 if (target[0] - obs[0])**2 + (target[1] - obs[1])**2 <= ct.SENS_RAN[2]**2:
                     in_range.append(obs)
-
+            
+            if len(ct.arr) == 0:
+                with open('a.txt', 'r') as f:
+                    r = int(np.random.uniform()*4)
+                    for j,line in enumerate(f):
+                        if r*250 <= j < (r+1)*250:
+                            ct.arr.append(int(line.strip('\n')))
+                    
+                prev = 0
+                for j,a in enumerate(ct.arr):
+                    ct.arr[j]=prev+(a-prev)*(1+np.random.uniform(-0.2, 0.2))
+                    prev = ct.arr[j]
+                    
+                
             if len(in_range) == 0:      # sets random destination
                 targ_dest[i] = (random.uniform(max(target_pos[i][0] - ct.AR_WID/4, 0), min(target_pos[i][0] + ct.AR_WID/4, ct.AR_WID)),
                                 random.uniform(max(target_pos[i][1] - ct.AR_HEI/4, 0), min(target_pos[i][1] + ct.AR_HEI/4, ct.AR_HEI)))
@@ -258,22 +271,30 @@ def ObsUpdate(obs_pos, obsvr, obs_dest, target_pos, targ, time_step, strategy, n
         
         # update the observer ddpg with information of ALL (targets + observers) within sensor range
         elif strategy.lower() == 'ddpg' and time_step % ct.GAMMA != 0:              #nwa
+            ct.S = 1 if len(net[i].memory.actions.data) > 0 else 2
             x, y = obs_pos[i]
             other_obs, other_targs = [], []
+            input_list = []
             for a, b in obs_pos: 
                 if (x-a)**2 + (y-b)**2 <= ct.SENS_RAN[2]**2:
+                    input_list.append(int(1))
                     other_obs.append((a,b))
+                else:
+                    input_list.append(int(0))
             for a, b in target_pos:
                 if (x-a)**2 + (y-b)**2 <= ct.SENS_RAN[2]**2:
                     other_targs.append((a,b))
+                    input_list.append(1)
+                else:
+                    input_list.append(0)
             
-            input_list = [1 for _ in range(len(other_targs))] + [0 for _ in range(ct.NUM_TARGET[-1] - len(other_targs))] + [1 for _ in range(len(other_obs))] + [0 for _ in range(ct.NUM_OBS[-1] - len(other_obs))] 
+            # input_list = [1 for _ in range(len(other_targs))] + [0 for _ in range(ct.NUM_TARGET[-1] - len(other_targs))] + [1 for _ in range(len(other_obs))] + [0 for _ in range(ct.NUM_OBS[-1] - len(other_obs))] 
             # convert to tensor
             input = torch.tensor(input_list, dtype=torch.float32)
-            input = input.unsqueeze(0)
             # print('input: ', input, input.shape)
             
             net[i].observe(len(other_targs)/len(other_obs), np.array(obs_dest[i]), np.array(input))
+            input = input.unsqueeze(0)
             if time_step > ct.GAMMA - 2:
                 net[i].update_policy()  
         
@@ -289,7 +310,6 @@ def ObsUpdate(obs_pos, obsvr, obs_dest, target_pos, targ, time_step, strategy, n
     if time_step % ct.GAMMA == 0:
         # K-means strategy
         # print('here')
-        print(strategy)
         if strategy.lower() == 'kmeans':
             for i, obs in enumerate(obs_pos):
                 in_range = []
@@ -475,16 +495,20 @@ def ObsUpdate(obs_pos, obsvr, obs_dest, target_pos, targ, time_step, strategy, n
                 other_obs = [(a,b) for (a,b) in obs_pos if (x-a)**2 + (y-b)**2 <= ct.SENS_RAN[2]**2 ]
             other_targs = [(a,b) for (a,b) in target_pos if (x-a)**2 + (y-b)**2 <= ct.SENS_RAN[2]**2]
             
-            input = [1 for _ in range(len(other_targs))] + [0 for _ in range(ct.NUM_TARGET[-1] - len(other_targs))] + [1 for _ in range(len(other_obs))] + [0 for _ in range(ct.NUM_OBS[-1] - len(other_obs))] 
+            input = [True for _ in range(len(other_targs))] + \
+            [False for _ in range(ct.NUM_TARGET[-1] - len(other_targs))] + \
+            [True for _ in range(len(other_obs))] + \
+            [False for _ in range(ct.NUM_OBS[-1] - len(other_obs))] 
+            
             # convert to tensor
             input = torch.tensor(input, dtype=torch.float32)
             input = input.unsqueeze(0)
 
             obs_dest[i] = net[i].select_action( x, y, input )    #nwa
             # convert into tuple
-            print('previous dest: ', obs_dest[i])
-            obs_dest[i] = tuple(obs_dest[i][0].tolist()[0])
-            print('final dest: ', obs_dest[i])
+            # print('previous dest: ', obs_dest[i])
+            obs_dest[i] = tuple(obs_dest[i])
+            # print('final dest: ', obs_dest[i])
             # obs_dest[i] = (obs_pos[i][0] + ct.GAMMA*ct.OBS_SPEED * math.cos(angle),
                         #    obs_pos[i][1] + ct.GAMMA*ct.OBS_SPEED * math.sin(angle))
             # obs_dest[i] = boundary_check( obs_dest[i], ct.AR_WID, ct.AR_HEI )
@@ -505,7 +529,8 @@ def ScrUpdate(target_pos, obs_pos, Score):
             if (t[0] - o[0])**2 + (t[1] - o[1])**2 <= ct.SENS_RAN[2]**2:
                 Score = Score + 1
                 break
-    return Score
+            
+    return ct.normalise(Score) if ct.S == 1 else Score
 
 def DispScr(Score):
     font = pg.font.SysFont("comicsansms", 30)

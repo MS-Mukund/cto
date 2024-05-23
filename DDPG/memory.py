@@ -43,6 +43,7 @@ class RingBuffer(object):
             self.start = (self.start + 1) % self.maxlen
         else:
             raise RuntimeError()
+        # print('appending ', self.start, self.length, self.maxlen)
         self.data[(self.start + self.length - 1) % self.maxlen] = v
 
 def zeroed_observation(observation):
@@ -172,6 +173,36 @@ class SequentialMemory(Memory):
         self.observations.append(observation)
         self.actions.append(action)
         self.rewards.append(reward)
+       
+    def save(self, filename):
+        print('len ', self.actions.length, self.rewards.length, self.observations.length)
+        # print('saving ', self.actions.data[:5])
+        # print('saving ', self.rewards.data[:5])
+        # print('saving ', self.observations.data[:5])
+        # actions: [array([236.08979129, 216.96178271]), array([236.08979129, 216.96178271]), array([236.08979129, 216.96178271])]
+        # rewards: [0.0, 0.0, 0.5, 1.2]
+        # observations: [array([False, False, False, False, False, False, False, False, False, False, False, False, False, False, False, False, False, False,
+        # False, False, False, False, False, False,  True]), array([[False, False, False, False, False, False, False, False, False,
+        # True, False, False, False, False, False, False, False, False,False, False, False, False, False, False, False]]) ]
+        
+        # save these different arrays to a file
+        np.savez(filename, actions=self.actions.data[:self.actions.length],
+                    rewards=np.array(self.rewards.data[:self.rewards.length]),
+                    observations=self.observations.data[:self.observations.length])
+    
+    def load(self, filename):
+        with np.load(filename) as f:
+            # print('loading ', list(f['actions']))
+            self.actions.length = len(f['actions'])
+            self.actions.data[:self.actions.length] = list(f['actions'])
+            
+            # print('loading ', list(f['rewards']))
+            self.rewards.length = len(f['rewards'])
+            self.rewards.data[:self.rewards.length] = list(f['rewards'])
+            
+            # print('loading ', list(f['observations']))
+            self.observations.length = len(f['observations'])
+            self.observations.data[:self.observations.length] = list(f['observations'])
 
     @property
     def nb_entries(self):

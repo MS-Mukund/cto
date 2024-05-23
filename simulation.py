@@ -10,6 +10,7 @@ import misc
 
 from DDPG.ddpg import DDPG
 import argparse
+import torch
 
 # Model as a RL problem
 # Reward - updated at each iteration, based on ALL(targets + observers within observer range) 
@@ -46,6 +47,7 @@ ct.TARG_RAD *= factor
 ct.OBS_RAD *= factor
 ct.USE_PYGAME = False
 
+
 if ct.USE_PYGAME == True:
     pg.init()
     window = pg.display.set_mode((ct.AR_WID, ct.AR_HEI)) 
@@ -74,6 +76,16 @@ if ct.USE_PYGAME == True:
 # Creating observers
 obs_pos = [ (random.uniform(0, ct.AR_WID), random.uniform(0, ct.AR_HEI))
            for _ in range(ct.NUM_OBS[-1]) ]
+# with open('obs_pos.txt', 'w') as f:
+    # for obs in obs_pos:
+        # f.write(f"{obs[0]} {obs[1]}\n")
+with open('obs_pos.txt', 'r') as f:
+    index = 0
+    for line in f:
+        a, b = line.strip('\n').split(' ')
+        obs_pos[index] = (float(a), float(b))
+        index += 1
+
 # obs_pos = []
 # for i in range(ct.NUM_TARGET[-1], len(lines)):
 #     if i < ct.NUM_OBS[-1] + ct.NUM_TARGET[-1]:
@@ -103,6 +115,7 @@ if ct.USE_PYGAME == True:
 # parser.add_argument('--ou_theta', default=0.15, type=float, help='noise theta')
 # parser.add_argument('--ou_sigma', default=0.2, type=float, help='noise sigma') 
 # parser.add_argument('--ou_mu', default=0.0, type=float, help='noise mu') 
+# strategy = 'explexpl' if strategy=='ddpg' and ct.USE_PYGAME == True else strategy
 # parser.add_argument('--validate_episodes', default=20, type=int, help='how many episode to perform during validate experiment')
 # parser.add_argument('--max_episode_length', default=500, type=int, help='')
 # parser.add_argument('--validate_steps', default=2000, type=int, help='how many steps to perform a validate experiment')
@@ -116,12 +129,25 @@ if ct.USE_PYGAME == True:
 
 # args = parser.parse_args()
 print("before creating model")
-init_st = np.zeros(ct.NUM_OBS[-1] + ct.NUM_TARGET[-1])
-net = [ DDPG(ct.NUM_OBS[-1], ct.NUM_TARGET[-1], ct.AR_WID, ct.AR_HEI, init_st) for i in range(ct.NUM_OBS[-1]) ]        # nwa
+init_st = [[False for _ in range(ct.NUM_TARGET[-1] + ct.NUM_OBS[-1])] for _ in range(ct.NUM_OBS[-1])]
+for i in range(ct.NUM_OBS[-1]):
+    x, y = obs_pos[i]
+    for j in range(ct.NUM_TARGET[-1]):
+        a, b = target_pos[j]
+        if (x - a)**2 + (y - b)**2 <= ct.SENS_RAN[2]**2:
+            init_st[i][j] = True
+ 
+    for j in range(ct.NUM_OBS[-1]):
+        a, b = obs_pos[j]
+        if (x - a)**2 + (y - b)**2 <= ct.SENS_RAN[2]**2:
+            init_st[i][ct.NUM_TARGET[-1] + j] = True
+    
+    init_st[i] = np.array(init_st[i], dtype=float)
+        
+net = [ DDPG(ct.NUM_OBS[-1], ct.NUM_TARGET[-1], ct.AR_WID, ct.AR_HEI, init_st[i], "memory" + str(i) + ".npz") for i in range(ct.NUM_OBS[-1]) ]        # nwa
 # check if actor.pkl and critic.pkl exist
 for i in range(ct.NUM_OBS[-1]):
     if os.path.exists("actor" + str(i) + ".pkl") and os.path.exists("critic" + str(i) + ".pkl"):
-        print("loading model")
         net[i].load_weights(".", i)
         
 print("after creating model")
@@ -178,17 +204,22 @@ while time_step < ct.TOTAL_TIME:
 
         # print('before score update obs_pos: ', obs_pos)
         Score = up.ScrUpdate( target_pos, obs_pos, Score )
+        if strategy.lower() == 'randomise':
+            with open('a.txt', 'a') as f:
+                f.write(f"{Score}\n")
 
     time_step += 1
     # pg.time.delay(10)
 
 # save model
-for i in range(ct.NUM_OBS[-1]):
-    net[i].save_model(".", i)
+if strategy.lower() == 'ddpg':
+    for i in range(ct.NUM_OBS[-1]):
+        net[i].save_model(".", i)
+        net[i].memory.save("memory" + str(i) + ".npz")
 
 Score /= ct.TOTAL_TIME
 # fname = 'obs_comp_' + strategy + '.txt'
-fname = 'ddpg.txt'
+fname = 'ddv1.txt'
 with open(fname, 'a') as f:
     f.write(f"{Score}\n")
 
