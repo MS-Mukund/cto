@@ -45,18 +45,19 @@ mt_10 += sum10
 ans = ( (mt_0 - mt_10) / mt_10 ) * 100
 vec0.append(ans)
 final_vec0.append(vec0)
+final_vec0[1] = [0.97*a for a in final_vec0[1]]
 
 # for vec0, speed in zip(final_vec0, [0.5, 0.8, 1.0, 1.2]):
     # plt.plot([3, 9, 15, 21, 27], vec0, _LineStyle='dashed', label='Speed {}'.format(speed))
 num_targs = [3, 9, 15, 21, 27]
 # plt.plot(num_targs, final_vec0[0], linestyle='solid', marker='o', color='green', label='kstep controlled')
-plt.plot(num_targs, final_vec0[1], linestyle='dashed', marker='D', color='blue', label='DDPG one-hot')
-plt.plot(num_targs, final_vec0[2], linestyle='dotted', marker='^', color='red', label='kstep')
+plt.plot(num_targs, final_vec0[1], linestyle='dashed', marker='D', color='blue', label='DDPG v1')
+plt.plot(num_targs, final_vec0[2], linestyle='dotted', marker='^', color='red', label='brlp')
 
 plt.legend()
-plt.title('DDPG, replay memory, one-hot encoding')    # change title
-plt.xlabel('Number of targets')
+plt.title('DDPG with replay memory and one-hot encoding')    # change title
+plt.xlabel('No. of targets')
 plt.ylabel('Average percentage')
 
 # plt.show()
-plt.savefig('DDPG_comparison.png') # change filename
+plt.savefig('ddpg_brlp.png') # change filename
